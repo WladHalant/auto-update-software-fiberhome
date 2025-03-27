@@ -1,41 +1,77 @@
-или tftp, в данном случае для быстрой загрузки файла нужно выключить защиту cpu
+import telnetlib
+import socket
+from concurrent.futures import ThreadPoolExecutor
+import threading
+import os
+import time
 
-configure
+# Конфигурация
+MAX_THREADS = 10
+USERNAME = '1'
+PASSWORD = '2'
+TFTP_SERVER = '192.168.1.100'  # Укажите ваш TFTP сервер
+FIRMWARE_FILE = 'firmware.bin'  # Имя файла прошивки
+TIMEOUT = 15  # Увеличенный таймаут для операций
 
-cpu rate-protect disable
+# Блокировки
+print_lock = threading.Lock()
 
-tftp get {{ server }} fiberhome/{{ filename }} localfile {{ filename }}
+def execute_commands(ip, commands):
+    try:
+        with telnetlib.Telnet(ip, timeout=TIMEOUT) as tn:
+            # Аутентификация
+            tn.read_until(b"login: ", timeout=5)
+            tn.write(USERNAME.encode('ascii') + b"\n")
+            
+            tn.read_until(b"Password: ", timeout=5)
+            tn.write(PASSWORD.encode('ascii') + b"\n")
+            
+            # Проверка входа
+            tn.read_until(b">", timeout=8)
+            tn.write(b"enable\n")
+            tn.read_until(b"#", timeout=5)
 
+            # Выполнение команд
+            for cmd in commands:
+                tn.write(cmd.encode('ascii') + b"\n")
+                time.sleep(1)  # Пауза между командами
+                output = tn.read_very_eager().decode('ascii')
+                with print_lock:
+                    print(f"[{ip}] Выполнено: {cmd}")
+                    print(output)
 
+    except Exception as e:
+        with print_lock:
+            print(f"[{ip}] Ошибка: {str(e)}")
 
-Установка прошивки
+def process_device(ip):
+    commands = [
+        "configure",
+        "cpu rate-protect disable",
+        f"tftp get {TFTP_SERVER} fiberhome/{FIRMWARE_FILE} localfile {FIRMWARE_FILE}",
+        f"upgrade os {FIRMWARE_FILE}",
+        "write file both",
+        "y",
+        "boot os main",
+        "boot startup-config",
+        "cpu rate-protect enable"  # Включаем защиту обратно
+    ]
+    
+    # Добавляем выбор [2] both после upgrade os
+    upgrade_commands = commands[:4] + ["2"] + commands[4:]
+    
+    execute_commands(ip, upgrade_commands)
 
-configure
+def main():
+    # Чтение IP-адресов
+    with open('ips.txt', 'r') as f:
+        ips = [line.strip() for line in f if line.strip()]
+    
+    # Запуск в пуле потоков
+    with ThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
+        executor.map(process_device, ips)
 
-upgrade os {{ filename }}
-
-
-
-Выбираем [2] both
-
-2
-
-Сохраняем конфиги (основной и бэкап)
-
-write file both
-
-y
-
-
-Ставим в стартап прошивку и конфиг:
-
-boot os main
-
-boot startup-config
-
-
-
-Если выполнялась загрузка через tftp и выключали защиту, включить
-
-cpu rate-protect enable
-
+if __name__ == "__main__":
+    print("Начало обновления прошивки на устройствах...")
+    main()
+    print("Операция завершена. Проверьте вывод для возможных ошибок.")
