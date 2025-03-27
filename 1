@@ -1,0 +1,41 @@
+или tftp, в данном случае для быстрой загрузки файла нужно выключить защиту cpu
+
+configure
+
+cpu rate-protect disable
+
+tftp get {{ server }} fiberhome/{{ filename }} localfile {{ filename }}
+
+
+
+Установка прошивки
+
+configure
+
+upgrade os {{ filename }}
+
+
+
+Выбираем [2] both
+
+2
+
+Сохраняем конфиги (основной и бэкап)
+
+write file both
+
+y
+
+
+Ставим в стартап прошивку и конфиг:
+
+boot os main
+
+boot startup-config
+
+
+
+Если выполнялась загрузка через tftp и выключали защиту, включить
+
+cpu rate-protect enable
+
