@@ -73,6 +73,33 @@ def execute_commands(ip):
             with print_lock:
                 print(f"[{ip}] Успешная перезагрузка")
 
+                           response = send_command(
+                tn,
+                f"ftp get {FTP_SERVER} {FIRMWARE_FILE} localfile {FIRMWARE_FILE}",
+                "Transmission success",
+                60
+            )
+            if b"Transmission success" not in response:
+                raise Exception("Ошибка загрузки прошивки")
+
+            # Обновление ОС
+            send_command(tn, f"upgrade os {FIRMWARE_FILE}", "Please select", 10)
+            send_command(tn, "2", "please wait", 300)  # Долгий таймаут для обновления
+
+            # Настройка загрузки
+            send_command(tn, "boot os main", "(config)#")
+            send_command(tn, "boot startup-config", "(config)#")
+
+            # Включение защиты
+            send_command(tn, "cpu rate-protect enable", "(config)#")
+
+            # Перезагрузка
+            send_command(tn, "reboot", "Continue?(y/n)")
+            tn.write(b"y\r\n")
+            
+            with print_lock:
+                print(f"{ip}: Успешная перезагрузка")
+
     except (socket.timeout, ConnectionResetError, EOFError):
         with print_lock:
             print(f"[{ip}] Соединение закрыто (перезагрузка)")
