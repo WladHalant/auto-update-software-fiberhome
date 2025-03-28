@@ -2,76 +2,92 @@ import telnetlib
 import socket
 from concurrent.futures import ThreadPoolExecutor
 import threading
-import os
 import time
 
 # Конфигурация
 MAX_THREADS = 10
 USERNAME = '1'
 PASSWORD = '2'
-TFTP_SERVER = '192.168.1.100'  # Укажите ваш TFTP сервер
-FIRMWARE_FILE = 'firmware.bin'  # Имя файла прошивки
-TIMEOUT = 15  # Увеличенный таймаут для операций
+TFTP_SERVER = '192.168.1.100'
+FIRMWARE_FILE = 'firmware.bin'
+TIMEOUT = 25  # Увеличено для медленных операций
 
-# Блокировки
 print_lock = threading.Lock()
 
-def execute_commands(ip, commands):
+def send_command(tn, command, expected_response, timeout=10):
+    """Отправляет команду и ждет определенный ответ"""
+    tn.write(command.encode('ascii') + b"\r\n")
+    return tn.read_until(expected_response.encode('ascii'), timeout=timeout)
+
+def execute_commands(ip):
     try:
         with telnetlib.Telnet(ip, timeout=TIMEOUT) as tn:
             # Аутентификация
-            tn.read_until(b"login: ", timeout=5)
-            tn.write(USERNAME.encode('ascii') + b"\n")
+            tn.read_until(b"login: ", timeout=7)
+            tn.write(USERNAME.encode('ascii') + b"\r\n")
             
-            tn.read_until(b"Password: ", timeout=5)
-            tn.write(PASSWORD.encode('ascii') + b"\n")
+            tn.read_until(b"Password: ", timeout=7)
+            tn.write(PASSWORD.encode('ascii') + b"\r\n")
+
+            # Переход в enable режим
+            send_command(tn, "enable", "#")
             
-            # Проверка входа
-            tn.read_until(b">", timeout=8)
-            tn.write(b"enable\n")
-            tn.read_until(b"#", timeout=5)
+            # Конфигурационный режим
+            send_command(tn, "configure", "(config)#")
 
-            # Выполнение команд
-            for cmd in commands:
-                tn.write(cmd.encode('ascii') + b"\n")
-                time.sleep(1)  # Пауза между командами
-                output = tn.read_very_eager().decode('ascii')
-                with print_lock:
-                    print(f"[{ip}] Выполнено: {cmd}")
-                    print(output)
+            # Отключение защиты CPU
+            send_command(tn, "cpu rate-protect disable", "(config)#")
 
+            # Загрузка прошивки
+            response = send_command(
+                tn, 
+                f"tftp get {TFTP_SERVER} fiberhome/{FIRMWARE_FILE} localfile {FIRMWARE_FILE}",
+                "TFTP: Downloading file",
+                timeout=30
+            )
+            if b"Downloading file" not in response:
+                raise Exception("Ошибка загрузки файла")
+
+            # Ожидание завершения загрузки
+            tn.read_until(b"TFTP: Download completed", timeout=60)
+
+            # Обновление ОС
+            send_command(tn, f"upgrade os {FIRMWARE_FILE}", "[1] backup")
+            send_command(tn, "2", "Please wait")
+
+            # Сохранение конфигурации
+            send_command(tn, "write file both", "successfully")
+            send_command(tn, "y", "#")
+
+            # Настройка загрузки
+            send_command(tn, "boot os main", "#")
+            send_command(tn, "boot startup-config", "#")
+
+            # Включение защиты
+            send_command(tn, "cpu rate-protect enable", "#")
+
+            # Перезагрузка
+            send_command(tn, "reboot", "[Y/N]")
+            send_command(tn, "Y", "rebooting", timeout=3)
+
+            with print_lock:
+                print(f"[{ip}] Успешная перезагрузка")
+
+    except (socket.timeout, ConnectionResetError, EOFError):
+        with print_lock:
+            print(f"[{ip}] Соединение закрыто (перезагрузка)")
     except Exception as e:
         with print_lock:
             print(f"[{ip}] Ошибка: {str(e)}")
 
-def process_device(ip):
-    commands = [
-        "configure",
-        "cpu rate-protect disable",
-        f"tftp get {TFTP_SERVER} {FIRMWARE_FILE} localfile {FIRMWARE_FILE}",
-        f"upgrade os {FIRMWARE_FILE}",
-        "write file both",
-        "y",
-        "boot os main",
-        "boot startup-config",
-        "cpu rate-protect enable"  # Включаем защиту обратно
-    ]
-    
-    # Добавляем выбор [2] both после upgrade os
-    upgrade_commands = commands[:4] + ["2"] + commands[4:]
-    
-    execute_commands(ip, upgrade_commands)
-
 def main():
-    # Чтение IP-адресов
     with open('ips.txt', 'r') as f:
         ips = [line.strip() for line in f if line.strip()]
     
-    # Запуск в пуле потоков
     with ThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
-        executor.map(process_device, ips)
+        executor.map(execute_commands, ips)
 
 if __name__ == "__main__":
-    print("Начало обновления прошивки на устройствах...")
+    print("Запуск автоматического обновления...")
     main()
-    print("Операция завершена. Проверьте вывод для возможных ошибок.")
+    print("Обработка всех устройств завершена.")
