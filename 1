@@ -48,7 +48,7 @@ def process_device(ip):
     commands = [
         "configure",
         "cpu rate-protect disable",
-        f"tftp get {TFTP_SERVER} fiberhome/{FIRMWARE_FILE} localfile {FIRMWARE_FILE}",
+        f"tftp get {TFTP_SERVER} {FIRMWARE_FILE} localfile {FIRMWARE_FILE}",
         f"upgrade os {FIRMWARE_FILE}",
         "write file both",
         "y",
