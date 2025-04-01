@@ -1,7 +1,7 @@
 Auto-update FIRMWARE fiberhome
 
 Russian
-1.Указать IP SFTP сервера. Логин/пароль
+1. Указать IP SFTP сервера. Логин/пароль
 2. Создать файд IP.txt. Указать список IP адрессов
 3. Запуск sudo python3 update_fiberhome.py
 
