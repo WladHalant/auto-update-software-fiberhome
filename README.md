@@ -9,12 +9,3 @@ English
 1. Specify the IP of the SFTP server. Login/password
 2. Create an IP.txt file. Specify a list of IP addresses
 3. Run sudo python3 update_fiberhome.py
-
-MAX_THREADS = Колличество потоков
-USERNAME = Имя
-PASSWORD = Пароль
-TFTP_SERVER = SFTP-сервер
-FIRMWARE_FILE = Файл с прошивкой
-TIMEOUT = Таймаут
-
-   
